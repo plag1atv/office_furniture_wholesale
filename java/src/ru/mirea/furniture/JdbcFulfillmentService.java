@@ -476,4 +476,186 @@ public final class JdbcFulfillmentService {
             this.after = after;
         }
     }
+
+
+        public ClosingResult closeOrder(
+            String number,
+            String action,
+            String reason,
+            String login,
+            char[] password
+    ) throws SQLException {
+        if (!"cancel".equals(action) && !"expire".equals(action)) {
+            throw new BusinessException("Неизвестная операция закрытия.");
+        }
+
+        if (reason == null || reason.isBlank()) {
+            throw new BusinessException("Не указана причина.");
+        }
+
+        return transactions.execute(connection -> {
+            long actor = authenticate(
+                    connection, login, password, "manager"
+            );
+
+            OrderRepository.LockedOrder order =
+                    repository.lockOrder(connection, number);
+
+            if (order.managerId != actor) {
+                throw new BusinessException(
+                        "Заказ закреплён за другим менеджером."
+                );
+            }
+
+            if ("cancel".equals(action)
+                    && "completed".equals(order.status)) {
+                throw new InvalidOrderStateException(
+                        "Отгруженный заказ отменить нельзя."
+                );
+            }
+
+            if (("cancel".equals(action)
+                    && "cancelled".equals(order.status))
+                    || ("expire".equals(action)
+                    && !"awaiting_payment".equals(order.status))) {
+                return new ClosingResult(
+                        order.status, false, paid(connection, order.id)
+                );
+            }
+
+            List<ReservationRow> reservations = list(
+                    connection,
+                    "SELECT id, order_item_id, quantity, "
+                            + "expires_at <= clock_timestamp() AS expired "
+                            + "FROM public.reservations "
+                            + "WHERE order_id = ? AND state = 'active' "
+                            + "ORDER BY product_id FOR UPDATE",
+                    result -> new ReservationRow(
+                            result.getLong("id"),
+                            result.getLong("order_item_id"),
+                            result.getInt("quantity"),
+                            result.getBoolean("expired")
+                    ),
+                    order.id
+            );
+
+            List<OrderRepository.StockLine> lines =
+                    repository.lockStock(connection, order);
+
+            if ("draft".equals(order.status)) {
+                if (!reservations.isEmpty()) {
+                    throw new BusinessException(
+                            "У черновика обнаружен активный резерв."
+                    );
+                }
+            } else {
+                if (reservations.size() != lines.size() || lines.isEmpty()) {
+                    throw new BusinessException(
+                            "Состав резервов не соответствует заказу."
+                    );
+                }
+
+                Map<Long, ReservationRow> byItem = new LinkedHashMap<>();
+
+                for (ReservationRow reservation : reservations) {
+                    byItem.put(reservation.itemId, reservation);
+                }
+
+                for (OrderRepository.StockLine line : lines) {
+                    ReservationRow reservation = byItem.get(line.itemId);
+
+                    if (reservation == null
+                            || reservation.quantity != line.quantity
+                            || line.reserved < line.quantity) {
+                        throw new BusinessException(
+                                "Неверный резерв товара " + line.sku
+                        );
+                    }
+                }
+            }
+
+            if ("expire".equals(action)
+                    && reservations.stream().noneMatch(row -> row.expired)) {
+                return new ClosingResult(
+                        order.status, false, paid(connection, order.id)
+                );
+            }
+
+            String reservationState =
+                    "cancel".equals(action) ? "released" : "expired";
+
+            for (ReservationRow reservation : reservations) {
+                update(
+                        connection,
+                        "UPDATE public.stock_balances "
+                                + "SET reserved = reserved - ? "
+                                + "WHERE warehouse_id = ? AND product_id = "
+                                + "(SELECT product_id FROM public.order_items "
+                                + "WHERE id = ?)",
+                        reservation.quantity,
+                        order.warehouseId,
+                        reservation.itemId
+                );
+
+                update(
+                        connection,
+                        "UPDATE public.reservations "
+                                + "SET state = ?, closed_at = clock_timestamp() "
+                                + "WHERE id = ?",
+                        reservationState, reservation.id
+                );
+            }
+
+            String status = "cancel".equals(action)
+                    ? "cancelled" : "draft";
+
+            update(
+                    connection,
+                    "UPDATE public.orders SET status = ? WHERE id = ?",
+                    status, order.id
+            );
+
+            history(
+                    connection, order.id, order.status, status,
+                    actor, "Java: " + reason.strip()
+            );
+
+            return new ClosingResult(
+                    status, true, paid(connection, order.id)
+            );
+        });
+    }
+
+    public static final class ClosingResult {
+        public final String status;
+        public final boolean changed;
+        public final BigDecimal paid;
+        public final boolean settlementRequired;
+
+        public ClosingResult(
+                String status, boolean changed, BigDecimal paid
+        ) {
+            this.status = status;
+            this.changed = changed;
+            this.paid = paid;
+            this.settlementRequired =
+                    "cancelled".equals(status) && paid.signum() > 0;
+        }
+    }
+
+    private static final class ReservationRow {
+        private final long id;
+        private final long itemId;
+        private final int quantity;
+        private final boolean expired;
+
+        private ReservationRow(
+                long id, long itemId, int quantity, boolean expired
+        ) {
+            this.id = id;
+            this.itemId = itemId;
+            this.quantity = quantity;
+            this.expired = expired;
+        }
+    }
 }
