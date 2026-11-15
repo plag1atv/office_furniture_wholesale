@@ -1,14 +1,17 @@
-from inventory import print_stock, reserve_order
-from order_calculations import (
-    calculate_item_total,
-    calculate_order_total,
-    create_order_item,
-    format_money,
+from inventory import print_stock
+from order_calculations import create_order_item, format_money
+from order_workflow import (
+    confirm_order,
+    create_order,
+    get_paid_amount,
+    get_remaining_amount,
+    register_payment,
+    start_picking,
 )
 
 
 def create_demo_stock():
-    """Возвращает учебные остатки до обработки нового заказа."""
+    """Возвращает учебные складские остатки."""
     return {
         "ST-01": {
             "on_hand": 10,
@@ -21,8 +24,8 @@ def create_demo_stock():
     }
 
 
-def create_demo_order():
-    """Возвращает учебный заказ из отчёта."""
+def create_demo_items():
+    """Возвращает строки учебного заказа."""
     return [
         create_order_item(
             sku="ST-01",
@@ -39,82 +42,79 @@ def create_demo_order():
     ]
 
 
-def print_order(items):
-    """Выводит состав и стоимость заказа."""
-    print("\nСОСТАВ ЗАКАЗА")
+def print_order_status(order):
+    """Выводит состояние заказа и расчётов."""
     print("-" * 66)
-
-    for item in items:
-        item_total = calculate_item_total(item)
-
-        print(
-            f"{item['sku']} | {item['name']} | "
-            f"{item['quantity']} шт. × "
-            f"{format_money(item['unit_price'])} = "
-            f"{format_money(item_total)}"
-        )
-
-    print("-" * 66)
-    print(f"ИТОГО: {format_money(calculate_order_total(items))}")
-
-
-def demonstrate_failed_reservation(stock):
-    """Показывает отказ без частичного изменения склада."""
-    print("\nПРОВЕРКА ОТКАЗА ПРИ НЕДОСТАТКЕ ТОВАРА")
-
-    # Кресел достаточно, но после первого заказа доступно только 5 столов.
-    # Даже резерв кресел не должен сохраняться при общем отказе.
-    excessive_order = [
-        create_order_item(
-            sku="KR-01",
-            name="Кресло офисное",
-            quantity=1,
-            unit_price="8750.00",
-        ),
-        create_order_item(
-            sku="ST-01",
-            name="Стол офисный",
-            quantity=6,
-            unit_price="12500.00",
-        ),
-    ]
-
-    stock_before_attempt = {
-        sku: balance.copy()
-        for sku, balance in stock.items()
-    }
-
-    try:
-        reserve_order(excessive_order, stock)
-    except ValueError as error:
-        print(f"Заказ отклонён: {error}")
-
-        if stock == stock_before_attempt:
-            print("Склад не изменён. Частичный резерв не создан.")
-        else:
-            raise RuntimeError("Ошибка: склад изменился после отказа.")
-    else:
-        raise RuntimeError("Ошибка: заказ с дефицитом был принят.")
+    print(f"Заказ: {order['number']}")
+    print(f"Покупатель: {order['customer']}")
+    print(f"Статус: {order['status']}")
+    print(f"Стоимость: {format_money(order['total'])}")
+    print(f"Оплачено: {format_money(get_paid_amount(order))}")
+    print(f"Осталось оплатить: {format_money(get_remaining_amount(order))}")
 
 
 def main():
     print("=" * 66)
-    print("ОПТОВАЯ ТОРГОВЛЯ ОФИСНОЙ МЕБЕЛЬЮ")
-    print("Расчёт и резервирование заказа")
+    print("ОБРАБОТКА ЗАКАЗА И КОНТРОЛЬ ОПЛАТЫ")
     print("=" * 66)
 
     stock = create_demo_stock()
-    order_items = create_demo_order()
 
-    print_stock(stock, "СКЛАД ДО РЕЗЕРВИРОВАНИЯ")
-    print_order(order_items)
+    order = create_order(
+        number="ORD-001",
+        customer='ООО «Учебный офис»',
+        items=create_demo_items(),
+    )
 
-    stock = reserve_order(order_items, stock)
+    print("\n1. СОЗДАНИЕ ЗАКАЗА")
+    print_order_status(order)
 
-    print("\nЗаказ успешно зарезервирован.")
-    print_stock(stock, "СКЛАД ПОСЛЕ РЕЗЕРВИРОВАНИЯ")
+    order, stock = confirm_order(order, stock)
 
-    demonstrate_failed_reservation(stock)
+    print("\n2. ПОДТВЕРЖДЕНИЕ И РЕЗЕРВИРОВАНИЕ")
+    print_order_status(order)
+
+    order = register_payment(order, "35000.00", "PAY-001")
+
+    print("\n3. ЧАСТИЧНАЯ ОПЛАТА")
+    print_order_status(order)
+
+    print("\n4. ПРОВЕРКА ЗАПРЕТА КОМПЛЕКТОВАНИЯ")
+
+    try:
+        start_picking(order)
+    except ValueError as error:
+        print(f"Операция отклонена: {error}")
+    else:
+        raise RuntimeError(
+            "Ошибка: неоплаченный заказ передан на комплектование."
+        )
+
+    print("\n5. ПРОВЕРКА ПОВТОРНОГО ПЛАТЕЖА")
+
+    try:
+        register_payment(order, "35000.00", "PAY-001")
+    except ValueError as error:
+        print(f"Операция отклонена: {error}")
+    else:
+        raise RuntimeError("Ошибка: повторный платёж принят.")
+
+    order = register_payment(order, "37500.00", "PAY-002")
+
+    print("\n6. ПОЛНАЯ ОПЛАТА")
+    print_order_status(order)
+
+    order = start_picking(order)
+
+    print("\n7. ПЕРЕДАЧА НА КОМПЛЕКТОВАНИЕ")
+    print_order_status(order)
+
+    print_stock(stock, "СКЛАД ДО ОТГРУЗКИ")
+
+    print("\nИСТОРИЯ ЗАКАЗА")
+
+    for event in order["history"]:
+        print(f"{event['action']} → {event['status']}")
 
 
 if __name__ == "__main__":
