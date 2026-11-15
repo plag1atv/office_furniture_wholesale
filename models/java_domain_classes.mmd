@@ -1,0 +1,84 @@
+classDiagram
+    direction TB
+
+    class Product {
+        -String sku
+        -String name
+        -BigDecimal cataloguePrice
+        +getSku()
+        +getName()
+        +getCataloguePrice()
+    }
+
+    class OrderItem {
+        -Product product
+        -int quantity
+        -BigDecimal unitPrice
+        +getProduct()
+        +getQuantity()
+        +getTotal()
+    }
+
+    class StockBalance {
+        -Product product
+        -int onHand
+        -int reserved
+        +getAvailable()
+        +reserve(quantity)
+        +release(quantity)
+        +ship(quantity)
+        +copy()
+    }
+
+    class Order {
+        -String number
+        -String customer
+        -BigDecimal total
+        -OrderStatus status
+        -String shipmentKey
+        +getItems()
+        +getTotal()
+        +getPaid()
+        +getRemaining()
+        +getStatus()
+        +getHistory()
+    }
+
+    class OrderStatus {
+        <<enumeration>>
+        DRAFT
+        AWAITING_PAYMENT
+        PAID
+        PICKING
+        READY
+        COMPLETED
+        CANCELLED
+    }
+
+    class OrderService {
+        +createOrder()
+        +reserve()
+        +registerPayment()
+        +startPicking()
+        +markReady()
+        +ship()
+        +cancel()
+        +getStockSnapshot()
+    }
+
+    class BusinessException
+    class InsufficientStockException
+    class InvalidOrderStateException
+
+    Order "1" --> "1..*" OrderItem : содержит
+    OrderItem "*" --> "1" Product : товар
+    StockBalance "*" --> "1" Product : остаток товара
+    Order --> OrderStatus : состояние
+
+    OrderService --> Order : обрабатывает
+    OrderService --> StockBalance : управляет остатками
+    OrderService ..> BusinessException : сообщает об отказе
+    StockBalance ..> InsufficientStockException : дефицит товара
+
+    BusinessException <|-- InsufficientStockException
+    BusinessException <|-- InvalidOrderStateException

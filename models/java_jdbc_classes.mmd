@@ -1,0 +1,80 @@
+classDiagram
+    direction TB
+
+    class TransactionManager {
+        <<interface>>
+        +execute(work)
+    }
+
+    class JdbcTransactionManager {
+        +execute(work)
+    }
+
+    class DatabaseConnectionFactory {
+        +openConnection()
+    }
+
+    class OrderRepository {
+        <<interface>>
+        +createDraft()
+        +lockOrder()
+        +lockStock()
+        +saveReservation()
+    }
+
+    class JdbcOrderRepository {
+        +createDraft()
+        +lockOrder()
+        +lockStock()
+        +saveReservation()
+    }
+
+    class StockRepository {
+        <<interface>>
+        +findByWarehouse()
+    }
+
+    class JdbcStockRepository {
+        +findByWarehouse()
+    }
+
+    class JdbcAuthenticationService {
+        +authenticate()
+        +requireRole()
+    }
+
+    class JdbcOrderService {
+        +createDraft()
+        +reserve()
+    }
+
+    class JdbcFulfillmentService {
+        +pay()
+        +prepare()
+        +ship()
+        +closeOrder()
+    }
+
+    class JdbcSql {
+        +update()
+        +list()
+        +one()
+    }
+
+    TransactionManager <|.. JdbcTransactionManager
+    OrderRepository <|.. JdbcOrderRepository
+    StockRepository <|.. JdbcStockRepository
+
+    JdbcTransactionManager --> DatabaseConnectionFactory : открывает соединение
+    JdbcStockRepository --> DatabaseConnectionFactory : открывает соединение
+
+    JdbcOrderService --> TransactionManager : выполняет транзакции
+    JdbcOrderService --> OrderRepository : сохраняет заказы
+    JdbcOrderService --> JdbcAuthenticationService : проверяет права
+
+    JdbcFulfillmentService --> TransactionManager : выполняет транзакции
+    JdbcFulfillmentService --> OrderRepository : блокирует данные
+    JdbcFulfillmentService --> JdbcAuthenticationService : проверяет права
+
+    JdbcOrderRepository ..> JdbcSql : выполняет запросы
+    JdbcFulfillmentService ..> JdbcSql : выполняет запросы
