@@ -1,0 +1,32 @@
+# Виртуальное окружение
+.venv/
+venv/
+
+# Настройки среды разработки
+.idea/
+*.iml
+
+# Временные файлы Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Результаты сборки Java
+*.class
+target/
+build/
+.gradle/
+
+# Локальные настройки и секреты
+.env
+.env.*
+!.env.example
+
+# Журналы и временные файлы
+*.log
+*.tmp
+~$*
+Thumbs.db
+Desktop.ini
