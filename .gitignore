@@ -33,3 +33,5 @@ Desktop.ini
 
 # Локальные резервные копии базы
 /backups/
+
+/java/out/
