@@ -3,6 +3,7 @@ from authentication import authenticate_user, require_role
 from database import get_connection
 from order_calculations import (
     calculate_order_total,
+    parse_price,
     validate_quantity,
 )
 
@@ -396,6 +397,227 @@ def reserve_order_in_database(number, operation_key, login, password):
                 "status": "awaiting_payment",
                 "already_reserved": already_reserved,
                 "balances": balances,
+            }
+
+    return result
+
+
+def register_payment_in_database(
+    number,
+    amount,
+    external_ref,
+    login,
+    password,
+):
+    """Регистрирует подтверждённый платёж одной транзакцией."""
+    payment_amount = parse_price(amount)
+
+    if payment_amount <= 0:
+        raise ValueError("Сумма платежа должна быть больше нуля.")
+
+    if not isinstance(external_ref, str) or not external_ref.strip():
+        raise ValueError("Необходимо указать номер платёжного документа.")
+
+    external_ref = external_ref.strip()
+
+    if len(external_ref) > 100:
+        raise ValueError("Номер платёжного документа слишком длинный.")
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            user = authenticate_user(cursor, login, password)
+            require_role(user, "accountant")
+
+            # Сериализуем платежи и другие операции одного заказа.
+            cursor.execute(
+                """
+                SELECT id, number, status
+                FROM public.orders
+                WHERE number = %s
+                FOR UPDATE
+                """,
+                (number,),
+            )
+            order = cursor.fetchone()
+
+            if order is None:
+                raise ValueError("Заказ не найден.")
+
+            cursor.execute(
+                """
+                SELECT order_id, amount
+                FROM public.payments
+                WHERE external_ref = %s
+                """,
+                (external_ref,),
+            )
+            existing_payment = cursor.fetchone()
+
+            already_registered = existing_payment is not None
+
+            if already_registered:
+                if (
+                    existing_payment["order_id"] != order["id"]
+                    or existing_payment["amount"] != payment_amount
+                ):
+                    raise ValueError(
+                        "Этот номер платежа уже использован "
+                        "для другого заказа или другой суммы."
+                    )
+
+            cursor.execute(
+                """
+                SELECT
+                    count(*) AS item_count,
+                    COALESCE(
+                        sum(quantity * unit_price),
+                        0
+                    ) AS total
+                FROM public.order_items
+                WHERE order_id = %s
+                """,
+                (order["id"],),
+            )
+            order_amounts = cursor.fetchone()
+
+            if order_amounts["item_count"] == 0:
+                raise ValueError("Заказ не содержит товаров.")
+
+            total = order_amounts["total"]
+
+            cursor.execute(
+                """
+                SELECT COALESCE(sum(amount), 0) AS paid
+                FROM public.payments
+                WHERE order_id = %s
+                """,
+                (order["id"],),
+            )
+            paid = cursor.fetchone()["paid"]
+
+            if not already_registered:
+                if order["status"] != "awaiting_payment":
+                    raise ValueError(
+                        "Новый платёж разрешён только для заказа, "
+                        "ожидающего оплаты."
+                    )
+
+                # Проверяем наличие действующего резерва каждой строки.
+                cursor.execute(
+                    """
+                    SELECT
+                        oi.id,
+                        oi.quantity,
+                        r.id AS reservation_id,
+                        r.quantity AS reserved_quantity,
+                        r.expires_at
+                    FROM public.order_items AS oi
+                    LEFT JOIN public.reservations AS r
+                        ON r.order_item_id = oi.id
+                       AND r.state = 'active'
+                    WHERE oi.order_id = %s
+                    ORDER BY oi.product_id
+                    """,
+                    (order["id"],),
+                )
+                reservations = cursor.fetchall()
+
+                cursor.execute(
+                    "SELECT clock_timestamp() AS checked_at"
+                )
+                checked_at = cursor.fetchone()["checked_at"]
+
+                for reservation in reservations:
+                    if reservation["reservation_id"] is None:
+                        raise ValueError(
+                            "Не для всех строк заказа существует резерв."
+                        )
+
+                    if (
+                        reservation["reserved_quantity"]
+                        != reservation["quantity"]
+                    ):
+                        raise ValueError(
+                            "Количество в резерве не совпадает "
+                            "с количеством в заказе."
+                        )
+
+                    if reservation["expires_at"] <= checked_at:
+                        raise ValueError(
+                            "Срок резерва истёк. "
+                            "Требуется повторное согласование заказа."
+                        )
+
+                if paid + payment_amount > total:
+                    raise ValueError(
+                        "Сумма платежа превышает остаток к оплате."
+                    )
+
+                cursor.execute(
+                    """
+                    INSERT INTO public.payments (
+                        order_id,
+                        amount,
+                        external_ref,
+                        confirmed_by
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    """,
+                    (
+                        order["id"],
+                        payment_amount,
+                        external_ref,
+                        user["id"],
+                    ),
+                )
+
+                paid += payment_amount
+
+                new_status = (
+                    "paid"
+                    if paid == total
+                    else "awaiting_payment"
+                )
+
+                cursor.execute(
+                    """
+                    UPDATE public.orders
+                    SET status = %s
+                    WHERE id = %s
+                    """,
+                    (new_status, order["id"]),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO public.order_history (
+                        order_id,
+                        old_status,
+                        new_status,
+                        changed_by,
+                        reason
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (
+                        order["id"],
+                        order["status"],
+                        new_status,
+                        user["id"],
+                        f"Подтверждён платёж {external_ref}",
+                    ),
+                )
+
+                order["status"] = new_status
+
+            result = {
+                "number": order["number"],
+                "external_ref": external_ref,
+                "status": order["status"],
+                "total": total,
+                "paid": paid,
+                "remaining": total - paid,
+                "already_registered": already_registered,
             }
 
     return result
