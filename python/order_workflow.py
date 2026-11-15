@@ -274,3 +274,79 @@ def ship_order(order, stock, operation_key):
     )
 
     return updated_order, updated_stock
+
+
+STATUS_CANCELLED = "Отменён"
+
+
+def cancel_order(order, stock, reason):
+    """
+    Отменяет заказ до отгрузки.
+
+    Физический запас не изменяется.
+    Для подтверждённого заказа освобождается его резерв.
+    Зарегистрированные платежи сохраняются.
+    """
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("Необходимо указать причину отмены.")
+
+    if order["status"] == STATUS_COMPLETED:
+        raise ValueError("Отгруженный заказ отменить нельзя.")
+
+    if order["status"] == STATUS_CANCELLED:
+        raise ValueError("Заказ уже отменён.")
+
+    allowed_statuses = {
+        STATUS_DRAFT,
+        STATUS_AWAITING_PAYMENT,
+        STATUS_PAID,
+        STATUS_PICKING,
+        STATUS_READY,
+    }
+
+    if order["status"] not in allowed_statuses:
+        raise ValueError("Текущее состояние заказа не допускает отмену.")
+
+    # В черновике резерв ещё не создавался.
+    has_reservation = order["status"] != STATUS_DRAFT
+
+    required_quantities = {}
+
+    if has_reservation:
+        required_quantities = aggregate_order_quantities(order["items"])
+
+        # Проверяем все позиции до освобождения резерва.
+        for sku, quantity in required_quantities.items():
+            if sku not in stock:
+                raise ValueError(f"Товар {sku} отсутствует на складе.")
+
+            balance = stock[sku]
+            get_available_quantity(balance)
+
+            if balance["reserved"] < quantity:
+                raise ValueError(
+                    f"Недостаточный резерв товара {sku} для отмены."
+                )
+
+    updated_order = deepcopy(order)
+    updated_stock = deepcopy(stock)
+
+    for sku, quantity in required_quantities.items():
+        updated_stock[sku]["reserved"] -= quantity
+
+    updated_order["status"] = STATUS_CANCELLED
+    updated_order["cancellation_reason"] = reason.strip()
+
+    # Это задача на урегулирование расчётов, а не выполненный возврат.
+    updated_order["refund_required"] = (
+        get_paid_amount(updated_order) > Decimal("0.00")
+    )
+
+    updated_order["history"].append(
+        {
+            "action": f"Заказ отменён: {reason.strip()}",
+            "status": STATUS_CANCELLED,
+        }
+    )
+
+    return updated_order, updated_stock
