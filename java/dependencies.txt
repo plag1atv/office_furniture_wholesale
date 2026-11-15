@@ -1,0 +1,11 @@
+Java: 11
+PostgreSQL JDBC: 42.7.14
+dotenv-java: 3.2.0
+
+JAR files are stored locally in java/lib.
+
+PostgreSQL JDBC:
+https://jdbc.postgresql.org/download/postgresql-42.7.14.jar
+
+dotenv-java:
+https://repo.maven.apache.org/maven2/io/github/cdimascio/dotenv-java/3.2.0/dotenv-java-3.2.0.jar
