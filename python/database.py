@@ -10,7 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 ENV_FILE = PROJECT_ROOT / ".env"
 
 
-def get_connection():
+def get_connection(database_name=None):
     """Открывает соединение с PostgreSQL."""
     load_dotenv(
         dotenv_path=ENV_FILE,
@@ -50,7 +50,7 @@ def get_connection():
     return psycopg.connect(
         host=os.environ["DB_HOST"],
         port=port,
-        dbname=os.environ["DB_NAME"],
+        dbname=database_name or os.environ["DB_NAME"],
         user=os.environ["DB_USER"],
         password=os.environ["DB_PASSWORD"],
         connect_timeout=5,

@@ -30,3 +30,6 @@ build/
 ~$*
 Thumbs.db
 Desktop.ini
+
+# Локальные резервные копии базы
+/backups/
