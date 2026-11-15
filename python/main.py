@@ -1,11 +1,14 @@
 from inventory import print_stock
+from copy import deepcopy
 from order_calculations import create_order_item, format_money
 from order_workflow import (
     confirm_order,
     create_order,
     get_paid_amount,
     get_remaining_amount,
+    mark_ready_for_shipment,
     register_payment,
+    ship_order,
     start_picking,
 )
 
@@ -109,12 +112,77 @@ def main():
     print("\n7. ПЕРЕДАЧА НА КОМПЛЕКТОВАНИЕ")
     print_order_status(order)
 
-    print_stock(stock, "СКЛАД ДО ОТГРУЗКИ")
+    print("\n8. ПРОВЕРКА КОМПЛЕКТНОСТИ")
+
+    # Учебное подтверждение фактически подобранного количества.
+    picked_quantities = {
+        "ST-01": 3,
+        "KR-01": 4,
+    }
+
+    order = mark_ready_for_shipment(order, picked_quantities)
+
+    print(f"Статус: {order['status']}")
+
+    stock_before_shipment = deepcopy(stock)
+
+    order, stock = ship_order(
+        order,
+        stock,
+        operation_key="SHIP-ORD-001",
+    )
+
+    print("\n9. ПРОВЕРКА ПОВТОРНОЙ ОТПРАВКИ ЗАПРОСА")
+
+    order_after_shipment = deepcopy(order)
+    stock_after_shipment = deepcopy(stock)
+
+    repeated_order, repeated_stock = ship_order(
+        order,
+        stock,
+        operation_key="SHIP-ORD-001",
+    )
+
+    if (
+            repeated_order != order_after_shipment
+            or repeated_stock != stock_after_shipment
+    ):
+        raise RuntimeError(
+            "Повторный запрос изменил результат отгрузки."
+        )
+
+    print("Повтор с тем же ключом: новое списание не выполнено.")
+
+    try:
+        ship_order(order, stock, operation_key="SHIP-ORD-001-RETRY")
+    except ValueError as error:
+        print(f"Отгрузка с другим ключом отклонена: {error}")
+    else:
+        raise RuntimeError("Повторная отгрузка ошибочно разрешена.")
 
     print("\nИСТОРИЯ ЗАКАЗА")
 
     for event in order["history"]:
         print(f"{event['action']} → {event['status']}")
+
+    print("\n" + "=" * 66)
+    print("КОНТРОЛЬНЫЙ РЕЗУЛЬТАТ")
+    print("=" * 66)
+
+    print_order_status(order)
+
+    print_stock(
+        stock_before_shipment,
+        "СКЛАД ПЕРЕД ОТГРУЗКОЙ",
+    )
+
+    print_stock(
+        stock,
+        "СКЛАД ПОСЛЕ ОТГРУЗКИ",
+    )
+
+    print("Повторный запрос не изменяет остатки.")
+    print("Отгрузка завершена.")
 
 
 if __name__ == "__main__":
