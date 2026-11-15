@@ -1,0 +1,354 @@
+<?xml version='1.0' encoding='utf-8'?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_OfficeFurniture" targetNamespace="https://example.org/office-furniture/practice" exporter="Office furniture practice model">
+  <bpmn:message id="Message_Request" name="Заявка покупателя" />
+  <bpmn:message id="Message_Invoice" name="Счёт на оплату" />
+  <bpmn:message id="Message_Payment" name="Сведения о платеже" />
+  <bpmn:message id="Message_Cancel" name="Отмена заказа" />
+  <bpmn:collaboration id="Collaboration_Order">
+    <bpmn:participant id="Participant_Customer" name="Покупатель" />
+    <bpmn:participant id="Participant_Company" name="Торговая организация" processRef="Process_Order" />
+    <bpmn:messageFlow id="MF_Request" sourceRef="Participant_Customer" targetRef="Start_Request" name="Заявка" />
+    <bpmn:messageFlow id="MF_Invoice" sourceRef="Task_Invoice" targetRef="Participant_Customer" name="Счёт" />
+    <bpmn:messageFlow id="MF_Payment" sourceRef="Participant_Customer" targetRef="Sub_Payment" name="Платёж" />
+    <bpmn:messageFlow id="MF_Cancel" sourceRef="Participant_Customer" targetRef="Boundary_Cancel" name="Отмена" />
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Order" name="Обработка оптового заказа офисной мебели" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_Order">
+      <bpmn:lane id="Lane_Manager" name="Менеджер">
+        <bpmn:flowNodeRef>Start_Request</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Register</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Sub_Reserve</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Invoice</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Accountant" name="Бухгалтер">
+        <bpmn:flowNodeRef>Sub_Payment</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Boundary_Timeout</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Boundary_Cancel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Expire</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Expired</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Cancel</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Cancelled</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_Warehouse" name="Склад">
+        <bpmn:flowNodeRef>Sub_Picking</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>Task_Ship</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>End_Completed</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_Request" name="Заявка получена">
+      <bpmn:messageEventDefinition id="Def_Request" messageRef="Message_Request" />
+      <bpmn:outgoing>Flow_0</bpmn:outgoing>
+    </bpmn:startEvent>
+    <bpmn:userTask id="Task_Register" name="Принять заявку&#10;и проверить клиента">
+      <bpmn:incoming>Flow_0</bpmn:incoming>
+      <bpmn:outgoing>Flow_1</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:subProcess id="Sub_Reserve" name="Согласовать заказ&#10;и создать резерв">
+      <bpmn:startEvent id="R_Start">
+        <bpmn:outgoing>R_F0</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="R_Form" name="Сформировать или изменить черновик">
+        <bpmn:incoming>R_F0</bpmn:incoming>
+        <bpmn:outgoing>R_F1</bpmn:outgoing>
+        <bpmn:incoming>R_F5</bpmn:incoming>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="R_Try" name="Атомарно проверить наличие и создать резерв">
+        <bpmn:incoming>R_F1</bpmn:incoming>
+        <bpmn:outgoing>R_F2</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="R_Enough" name="Резерв создан?" gatewayDirection="Diverging">
+        <bpmn:incoming>R_F2</bpmn:incoming>
+        <bpmn:outgoing>R_F3</bpmn:outgoing>
+        <bpmn:outgoing>R_F4</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="R_Revise" name="Согласовать изменение заявки">
+        <bpmn:incoming>R_F4</bpmn:incoming>
+        <bpmn:outgoing>R_F5</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="R_End" name="Резерв создан">
+        <bpmn:incoming>R_F3</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="R_F0" sourceRef="R_Start" targetRef="R_Form" />
+      <bpmn:sequenceFlow id="R_F1" sourceRef="R_Form" targetRef="R_Try" />
+      <bpmn:sequenceFlow id="R_F2" sourceRef="R_Try" targetRef="R_Enough" />
+      <bpmn:sequenceFlow id="R_F3" sourceRef="R_Enough" targetRef="R_End" name="Да" />
+      <bpmn:sequenceFlow id="R_F4" sourceRef="R_Enough" targetRef="R_Revise" name="Нет" />
+      <bpmn:sequenceFlow id="R_F5" sourceRef="R_Revise" targetRef="R_Form" />
+      <bpmn:incoming>Flow_1</bpmn:incoming>
+      <bpmn:outgoing>Flow_2</bpmn:outgoing>
+    </bpmn:subProcess>
+    <bpmn:sendTask id="Task_Invoice" name="Направить счёт&#10;покупателю">
+      <bpmn:incoming>Flow_2</bpmn:incoming>
+      <bpmn:outgoing>Flow_3</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:subProcess id="Sub_Payment" name="Получить и подтвердить&#10;полную оплату">
+      <bpmn:startEvent id="P_Start">
+        <bpmn:outgoing>P_F0</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:intermediateCatchEvent id="P_Receive" name="Получен платёж">
+        <bpmn:messageEventDefinition id="Def_PaymentReceive" messageRef="Message_Payment" />
+        <bpmn:incoming>P_F0</bpmn:incoming>
+        <bpmn:outgoing>P_F1</bpmn:outgoing>
+        <bpmn:incoming>P_F4</bpmn:incoming>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:userTask id="P_Confirm" name="Подтвердить платёж бухгалтером">
+        <bpmn:incoming>P_F1</bpmn:incoming>
+        <bpmn:outgoing>P_F2</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="P_Full" name="Получена полная сумма?" gatewayDirection="Diverging">
+        <bpmn:incoming>P_F2</bpmn:incoming>
+        <bpmn:outgoing>P_F3</bpmn:outgoing>
+        <bpmn:outgoing>P_F4</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="P_End" name="Заказ полностью оплачен">
+        <bpmn:incoming>P_F3</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="P_F0" sourceRef="P_Start" targetRef="P_Receive" />
+      <bpmn:sequenceFlow id="P_F1" sourceRef="P_Receive" targetRef="P_Confirm" />
+      <bpmn:sequenceFlow id="P_F2" sourceRef="P_Confirm" targetRef="P_Full" />
+      <bpmn:sequenceFlow id="P_F3" sourceRef="P_Full" targetRef="P_End" name="Да" />
+      <bpmn:sequenceFlow id="P_F4" sourceRef="P_Full" targetRef="P_Receive" name="Нет" />
+      <bpmn:incoming>Flow_3</bpmn:incoming>
+      <bpmn:outgoing>Flow_4</bpmn:outgoing>
+    </bpmn:subProcess>
+    <bpmn:boundaryEvent id="Boundary_Timeout" name="24 часа" attachedToRef="Sub_Payment" cancelActivity="true">
+      <bpmn:timerEventDefinition id="Def_Timeout">
+        <bpmn:timeDuration>PT24H</bpmn:timeDuration>
+      </bpmn:timerEventDefinition>
+      <bpmn:outgoing>Flow_7</bpmn:outgoing>
+    </bpmn:boundaryEvent>
+    <bpmn:boundaryEvent id="Boundary_Cancel" name="Отмена" attachedToRef="Sub_Payment" cancelActivity="true">
+      <bpmn:messageEventDefinition id="Def_Cancel" messageRef="Message_Cancel" />
+      <bpmn:outgoing>Flow_9</bpmn:outgoing>
+    </bpmn:boundaryEvent>
+    <bpmn:serviceTask id="Task_Expire" name="Снять резерв.&#10;Вернуть заказ в черновик">
+      <bpmn:incoming>Flow_7</bpmn:incoming>
+      <bpmn:outgoing>Flow_8</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Expired" name="На повторное&#10;согласование">
+      <bpmn:incoming>Flow_8</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:serviceTask id="Task_Cancel" name="Снять резерв.&#10;Отменить заказ">
+      <bpmn:incoming>Flow_9</bpmn:incoming>
+      <bpmn:outgoing>Flow_10</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Cancelled" name="Заказ отменён">
+      <bpmn:incoming>Flow_10</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:subProcess id="Sub_Picking" name="Скомплектовать заказ&#10;и проверить состав">
+      <bpmn:startEvent id="W_Start">
+        <bpmn:outgoing>W_F0</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:userTask id="W_Pick" name="Подобрать товары">
+        <bpmn:incoming>W_F0</bpmn:incoming>
+        <bpmn:outgoing>W_F1</bpmn:outgoing>
+        <bpmn:incoming>W_F4</bpmn:incoming>
+      </bpmn:userTask>
+      <bpmn:userTask id="W_Verify" name="Проверить артикулы и количество">
+        <bpmn:incoming>W_F1</bpmn:incoming>
+        <bpmn:outgoing>W_F2</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="W_Complete" name="Комплект соответствует заказу?" gatewayDirection="Diverging">
+        <bpmn:incoming>W_F2</bpmn:incoming>
+        <bpmn:outgoing>W_F3</bpmn:outgoing>
+        <bpmn:outgoing>W_F4</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:endEvent id="W_End" name="Комплект проверен">
+        <bpmn:incoming>W_F3</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="W_F0" sourceRef="W_Start" targetRef="W_Pick" />
+      <bpmn:sequenceFlow id="W_F1" sourceRef="W_Pick" targetRef="W_Verify" />
+      <bpmn:sequenceFlow id="W_F2" sourceRef="W_Verify" targetRef="W_Complete" />
+      <bpmn:sequenceFlow id="W_F3" sourceRef="W_Complete" targetRef="W_End" name="Да" />
+      <bpmn:sequenceFlow id="W_F4" sourceRef="W_Complete" targetRef="W_Pick" name="Нет" />
+      <bpmn:incoming>Flow_4</bpmn:incoming>
+      <bpmn:outgoing>Flow_5</bpmn:outgoing>
+    </bpmn:subProcess>
+    <bpmn:serviceTask id="Task_Ship" name="Отгрузить товар.&#10;Записать движения">
+      <bpmn:incoming>Flow_5</bpmn:incoming>
+      <bpmn:outgoing>Flow_6</bpmn:outgoing>
+    </bpmn:serviceTask>
+    <bpmn:endEvent id="End_Completed" name="Заказ завершён">
+      <bpmn:incoming>Flow_6</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_0" sourceRef="Start_Request" targetRef="Task_Register" />
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Task_Register" targetRef="Sub_Reserve" />
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Sub_Reserve" targetRef="Task_Invoice" />
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_Invoice" targetRef="Sub_Payment" />
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Sub_Payment" targetRef="Sub_Picking" />
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="Sub_Picking" targetRef="Task_Ship" />
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_Ship" targetRef="End_Completed" />
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Boundary_Timeout" targetRef="Task_Expire" />
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="Task_Expire" targetRef="End_Expired" />
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="Boundary_Cancel" targetRef="Task_Cancel" />
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="Task_Cancel" targetRef="End_Cancelled" />
+    <bpmn:textAnnotation id="Annotation_Settlement">
+      <bpmn:text>При наличии оплаты требуется
+урегулирование расчётов</bpmn:text>
+    </bpmn:textAnnotation>
+    <bpmn:association id="Association_Settlement" sourceRef="Task_Cancel" targetRef="Annotation_Settlement" associationDirection="None" />
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_Order">
+    <bpmndi:BPMNPlane id="Plane_Order" bpmnElement="Collaboration_Order">
+      <bpmndi:BPMNShape id="DI_Participant_Customer" bpmnElement="Participant_Customer" isHorizontal="true">
+        <dc:Bounds x="40" y="30" width="1080" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Participant_Company" bpmnElement="Participant_Company" isHorizontal="true">
+        <dc:Bounds x="40" y="170" width="1080" height="700" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Lane_Manager" bpmnElement="Lane_Manager" isHorizontal="true">
+        <dc:Bounds x="70" y="170" width="1050" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Lane_Accountant" bpmnElement="Lane_Accountant" isHorizontal="true">
+        <dc:Bounds x="70" y="400" width="1050" height="230" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Lane_Warehouse" bpmnElement="Lane_Warehouse" isHorizontal="true">
+        <dc:Bounds x="70" y="630" width="1050" height="240" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Start_Request" bpmnElement="Start_Request">
+        <dc:Bounds x="132" y="252" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="100" y="295" width="100" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Task_Register" bpmnElement="Task_Register">
+        <dc:Bounds x="225" y="230" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Sub_Reserve" bpmnElement="Sub_Reserve" isExpanded="false">
+        <dc:Bounds x="420" y="220" width="160" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Task_Invoice" bpmnElement="Task_Invoice">
+        <dc:Bounds x="625" y="230" width="150" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Sub_Payment" bpmnElement="Sub_Payment" isExpanded="false">
+        <dc:Bounds x="615" y="450" width="170" height="100" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Boundary_Timeout" bpmnElement="Boundary_Timeout">
+        <dc:Bounds x="597" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="535" y="525" width="100" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Boundary_Cancel" bpmnElement="Boundary_Cancel">
+        <dc:Bounds x="767" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="770" y="525" width="80" height="30" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Task_Expire" bpmnElement="Task_Expire">
+        <dc:Bounds x="350" y="460" width="160" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_End_Expired" bpmnElement="End_Expired">
+        <dc:Bounds x="212" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="150" y="525" width="160" height="55" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Task_Cancel" bpmnElement="Task_Cancel">
+        <dc:Bounds x="855" y="460" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_End_Cancelled" bpmnElement="End_Cancelled">
+        <dc:Bounds x="1037" y="482" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="995" y="525" width="120" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Sub_Picking" bpmnElement="Sub_Picking" isExpanded="false">
+        <dc:Bounds x="615" y="705" width="170" height="90" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Task_Ship" bpmnElement="Task_Ship">
+        <dc:Bounds x="855" y="710" width="140" height="80" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_End_Completed" bpmnElement="End_Completed">
+        <dc:Bounds x="1037" y="732" width="36" height="36" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="995" y="775" width="120" height="45" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="DI_Annotation_Settlement" bpmnElement="Annotation_Settlement">
+        <dc:Bounds x="850" y="570" width="250" height="45" />
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="DI_Flow_0" bpmnElement="Flow_0">
+        <di:waypoint x="168" y="270" />
+        <di:waypoint x="225" y="270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_1" bpmnElement="Flow_1">
+        <di:waypoint x="375" y="270" />
+        <di:waypoint x="420" y="270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_2" bpmnElement="Flow_2">
+        <di:waypoint x="580" y="270" />
+        <di:waypoint x="625" y="270" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_3" bpmnElement="Flow_3">
+        <di:waypoint x="700" y="310" />
+        <di:waypoint x="700" y="450" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_4" bpmnElement="Flow_4">
+        <di:waypoint x="700" y="550" />
+        <di:waypoint x="700" y="705" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_5" bpmnElement="Flow_5">
+        <di:waypoint x="785" y="750" />
+        <di:waypoint x="855" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_6" bpmnElement="Flow_6">
+        <di:waypoint x="995" y="750" />
+        <di:waypoint x="1037" y="750" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_7" bpmnElement="Flow_7">
+        <di:waypoint x="597" y="500" />
+        <di:waypoint x="510" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_8" bpmnElement="Flow_8">
+        <di:waypoint x="350" y="500" />
+        <di:waypoint x="248" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_9" bpmnElement="Flow_9">
+        <di:waypoint x="803" y="500" />
+        <di:waypoint x="855" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Flow_10" bpmnElement="Flow_10">
+        <di:waypoint x="995" y="500" />
+        <di:waypoint x="1037" y="500" />
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_MF_Request" bpmnElement="MF_Request">
+        <di:waypoint x="150" y="120" />
+        <di:waypoint x="150" y="252" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="160" y="170" width="100" height="25" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_MF_Invoice" bpmnElement="MF_Invoice">
+        <di:waypoint x="700" y="230" />
+        <di:waypoint x="700" y="120" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="710" y="160" width="80" height="25" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_MF_Payment" bpmnElement="MF_Payment">
+        <di:waypoint x="1060" y="120" />
+        <di:waypoint x="1060" y="410" />
+        <di:waypoint x="740" y="410" />
+        <di:waypoint x="740" y="450" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="870" y="380" width="90" height="25" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_MF_Cancel" bpmnElement="MF_Cancel">
+        <di:waypoint x="1100" y="120" />
+        <di:waypoint x="1100" y="430" />
+        <di:waypoint x="820" y="430" />
+        <di:waypoint x="820" y="500" />
+        <di:waypoint x="803" y="500" />
+        <bpmndi:BPMNLabel>
+          <dc:Bounds x="990" y="435" width="90" height="25" />
+        </bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="DI_Association_Settlement" bpmnElement="Association_Settlement">
+        <di:waypoint x="925" y="540" />
+        <di:waypoint x="925" y="570" />
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>
