@@ -1,0 +1,156 @@
+---
+title: Логическая модель данных — оптовая торговля офисной мебелью
+---
+erDiagram
+    direction TB
+
+    CUSTOMERS {
+        identifier id PK
+        string name
+        string inn
+        string address
+    }
+
+    CUSTOMER_CONTACTS {
+        identifier id PK
+        string name
+        string phone
+        string email
+    }
+
+    SUPPLIERS {
+        identifier id PK
+        string name
+        string inn
+    }
+
+    CATEGORIES {
+        identifier id PK
+        string name
+    }
+
+    PRODUCTS {
+        identifier id PK
+        string sku
+        string name
+        decimal price
+    }
+
+    WAREHOUSES {
+        identifier id PK
+        string name
+        string address
+    }
+
+    STOCK_BALANCES {
+        identifier warehouse_id PK
+        identifier product_id PK
+        integer on_hand
+        integer reserved
+    }
+
+    USERS {
+        identifier id PK
+        string login
+        string password_hash
+        boolean active
+    }
+
+    ROLES {
+        identifier id PK
+        string name
+    }
+
+    USER_ROLES {
+        identifier user_id PK
+        identifier role_id PK
+    }
+
+    ORDERS {
+        identifier id PK
+        string number
+        string status
+        datetime created_at
+    }
+
+    ORDER_ITEMS {
+        identifier id PK
+        integer quantity
+        decimal unit_price
+    }
+
+    RESERVATIONS {
+        identifier id PK
+        integer quantity
+        string state
+        datetime expires_at
+    }
+
+    PAYMENTS {
+        identifier id PK
+        decimal amount
+        string external_ref
+        datetime confirmed_at
+    }
+
+    SHIPMENTS {
+        identifier id PK
+        string operation_key
+        datetime shipped_at
+    }
+
+    SHIPMENT_ITEMS {
+        identifier id PK
+        integer quantity
+    }
+
+    STOCK_MOVEMENTS {
+        identifier id PK
+        integer delta
+        string reason
+        datetime created_at
+    }
+
+    ORDER_HISTORY {
+        identifier id PK
+        string old_status
+        string new_status
+        string reason
+        datetime changed_at
+    }
+
+    CUSTOMERS ||--o{ CUSTOMER_CONTACTS : has
+    CUSTOMERS ||--o{ ORDERS : places
+    CUSTOMER_CONTACTS |o--o{ ORDERS : contact_for
+
+    CATEGORIES ||--o{ PRODUCTS : groups
+    SUPPLIERS ||--o{ PRODUCTS : supplies
+
+    WAREHOUSES ||--o{ STOCK_BALANCES : stores
+    PRODUCTS ||--o{ STOCK_BALANCES : has_balance
+
+    USERS ||--o{ USER_ROLES : receives
+    ROLES ||--o{ USER_ROLES : assigned_as
+
+    USERS ||--o{ ORDERS : manages
+    WAREHOUSES ||--o{ ORDERS : fulfills
+    ORDERS ||--|{ ORDER_ITEMS : contains
+    PRODUCTS ||--o{ ORDER_ITEMS : ordered_as
+
+    ORDER_ITEMS ||--o{ RESERVATIONS : reserved_by
+    STOCK_BALANCES ||--o{ RESERVATIONS : provides_stock
+
+    ORDERS ||--o{ PAYMENTS : paid_by
+    USERS ||--o{ PAYMENTS : confirms
+
+    ORDERS ||--o| SHIPMENTS : shipped_by
+    USERS ||--o{ SHIPMENTS : performs
+    SHIPMENTS ||--|{ SHIPMENT_ITEMS : contains
+    ORDER_ITEMS ||--o{ SHIPMENT_ITEMS : fulfilled_by
+
+    STOCK_BALANCES ||--o{ STOCK_MOVEMENTS : changed_by
+    SHIPMENT_ITEMS |o--o| STOCK_MOVEMENTS : causes
+    USERS ||--o{ STOCK_MOVEMENTS : records
+
+    ORDERS ||--o{ ORDER_HISTORY : has_history
+    USERS ||--o{ ORDER_HISTORY : changes_status
