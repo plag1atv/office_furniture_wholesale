@@ -1,0 +1,64 @@
+---
+config:
+  theme: base
+  look: classic
+  layout: dagre
+  themeVariables:
+    fontFamily: "Times New Roman"
+    fontSize: "18px"
+    primaryColor: "#ffffff"
+    primaryTextColor: "#000000"
+    primaryBorderColor: "#000000"
+    lineColor: "#000000"
+  flowchart:
+    nodeSpacing: 18
+    rankSpacing: 18
+    padding: 8
+---
+flowchart TD
+    START(["Начало"])
+    INPUT{"Параметры запроса<br/>корректны?"}
+    REJECT(["Отклонить запрос"])
+
+    AUTH["Начать транзакцию.<br/>Проверить пользователя<br/>и роль менеджера"]
+    LOCK_ORDER["Заблокировать заказ.<br/>Проверить принадлежность<br/>менеджеру"]
+
+    REPEAT{"Заказ ожидает оплаты<br/>и ключ запроса совпадает?"}
+    REPEAT_COMMIT["COMMIT.<br/>Вернуть существующий результат"]
+    REPEAT_END(["Завершение без нового резерва"])
+
+    DRAFT{"Заказ — черновик<br/>и содержит строки?"}
+    LOCK_STOCK["Заблокировать остатки<br/>в порядке идентификаторов товаров"]
+    AVAILABLE{"Всех товаров<br/>достаточно?"}
+
+    SAVE["Увеличить складской резерв.<br/>Создать записи резервов.<br/>Сохранить статус и историю"]
+    COMMIT["COMMIT"]
+    SUCCESS(["Резервирование выполнено"])
+
+    ROLLBACK["ROLLBACK.<br/>Не сохранять изменения"]
+    FAILURE(["Вернуть причину отказа"])
+
+    START --> INPUT
+    INPUT -->|"Нет"| REJECT
+    INPUT -->|"Да"| AUTH
+
+    AUTH --> LOCK_ORDER
+    AUTH -.->|"Ошибка доступа"| ROLLBACK
+    LOCK_ORDER -.->|"Другой менеджер или заказ не найден"| ROLLBACK
+
+    LOCK_ORDER --> REPEAT
+    REPEAT -->|"Да"| REPEAT_COMMIT
+    REPEAT_COMMIT --> REPEAT_END
+
+    REPEAT -->|"Нет"| DRAFT
+    DRAFT -->|"Нет"| ROLLBACK
+    DRAFT -->|"Да"| LOCK_STOCK
+
+    LOCK_STOCK --> AVAILABLE
+    AVAILABLE -->|"Нет"| ROLLBACK
+    AVAILABLE -->|"Да"| SAVE
+
+    SAVE --> COMMIT
+    SAVE -.->|"Ошибка сохранения"| ROLLBACK
+    COMMIT --> SUCCESS
+    ROLLBACK --> FAILURE
