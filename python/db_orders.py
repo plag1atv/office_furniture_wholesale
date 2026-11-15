@@ -195,3 +195,207 @@ def create_draft_order(
 
     # Возвращаем результат только после успешной фиксации транзакции.
     return result
+
+
+def reserve_order_in_database(number, operation_key, login, password):
+    """Резервирует все строки заказа одной транзакцией."""
+    if not isinstance(operation_key, str) or not operation_key.strip():
+        raise ValueError("Необходимо указать ключ резервирования.")
+
+    operation_key = operation_key.strip()
+
+    if len(operation_key) > 64:
+        raise ValueError("Ключ резервирования не должен превышать 64 символа.")
+
+    with get_connection() as connection:
+        with connection.cursor() as cursor:
+            user = authenticate_user(cursor, login, password)
+            require_role(user, "manager")
+
+            # Все операции изменения заказа должны начинаться
+            # с блокировки его заголовка.
+            cursor.execute(
+                """
+                SELECT id, number, warehouse_id, manager_id,
+                       status, reserve_key
+                FROM public.orders
+                WHERE number = %s
+                FOR UPDATE
+                """,
+                (number,),
+            )
+            order = cursor.fetchone()
+
+            if order is None:
+                raise ValueError("Заказ не найден.")
+
+            if order["manager_id"] != user["id"]:
+                raise PermissionError("Заказ закреплён за другим менеджером.")
+
+            already_reserved = (
+                order["status"] == "awaiting_payment"
+                and order["reserve_key"] == operation_key
+            )
+
+            if not already_reserved:
+                if order["status"] != "draft":
+                    raise ValueError(
+                        "Резервирование разрешено только для черновика."
+                    )
+
+                cursor.execute(
+                    """
+                    SELECT
+                        oi.id,
+                        oi.product_id,
+                        oi.quantity,
+                        p.sku
+                    FROM public.order_items AS oi
+                    JOIN public.products AS p
+                        ON p.id = oi.product_id
+                    WHERE oi.order_id = %s
+                    ORDER BY oi.product_id
+                    """,
+                    (order["id"],),
+                )
+                items = cursor.fetchall()
+
+                if not items:
+                    raise ValueError("Заказ не содержит товаров.")
+
+                # Получаем блокировки в одинаковом порядке product_id.
+                # До завершения всех проверок остатки не изменяем.
+                for item in items:
+                    cursor.execute(
+                        """
+                        SELECT on_hand, reserved
+                        FROM public.stock_balances
+                        WHERE warehouse_id = %s
+                          AND product_id = %s
+                        FOR UPDATE
+                        """,
+                        (order["warehouse_id"], item["product_id"]),
+                    )
+                    balance = cursor.fetchone()
+
+                    if balance is None:
+                        raise ValueError(
+                            f"Нет складской записи для товара {item['sku']}."
+                        )
+
+                    available = balance["on_hand"] - balance["reserved"]
+
+                    if item["quantity"] > available:
+                        raise ValueError(
+                            f"Недостаточно товара {item['sku']}: "
+                            f"требуется {item['quantity']}, "
+                            f"доступно {available}."
+                        )
+
+                cursor.execute(
+                    """
+                    SELECT
+                        clock_timestamp() + INTERVAL '24 hours'
+                        AS expires_at
+                    """
+                )
+                expires_at = cursor.fetchone()["expires_at"]
+
+                for item in items:
+                    cursor.execute(
+                        """
+                        UPDATE public.stock_balances
+                        SET reserved = reserved + %s
+                        WHERE warehouse_id = %s
+                          AND product_id = %s
+                        """,
+                        (
+                            item["quantity"],
+                            order["warehouse_id"],
+                            item["product_id"],
+                        ),
+                    )
+
+                    cursor.execute(
+                        """
+                        INSERT INTO public.reservations (
+                            order_item_id,
+                            order_id,
+                            warehouse_id,
+                            product_id,
+                            quantity,
+                            state,
+                            expires_at
+                        )
+                        VALUES (%s, %s, %s, %s, %s, 'active', %s)
+                        """,
+                        (
+                            item["id"],
+                            order["id"],
+                            order["warehouse_id"],
+                            item["product_id"],
+                            item["quantity"],
+                            expires_at,
+                        ),
+                    )
+
+                cursor.execute(
+                    """
+                    UPDATE public.orders
+                    SET status = 'awaiting_payment',
+                        reserve_key = %s
+                    WHERE id = %s
+                    """,
+                    (operation_key, order["id"]),
+                )
+
+                cursor.execute(
+                    """
+                    INSERT INTO public.order_history (
+                        order_id,
+                        old_status,
+                        new_status,
+                        changed_by,
+                        reason
+                    )
+                    VALUES (
+                        %s, 'draft', 'awaiting_payment', %s, %s
+                    )
+                    """,
+                    (
+                        order["id"],
+                        user["id"],
+                        "Создан резерв всех строк заказа",
+                    ),
+                )
+
+            cursor.execute(
+                """
+                SELECT
+                    p.sku,
+                    r.quantity AS order_reserved,
+                    sb.on_hand,
+                    sb.reserved,
+                    sb.on_hand - sb.reserved AS available
+                FROM public.reservations AS r
+                JOIN public.products AS p
+                    ON p.id = r.product_id
+                JOIN public.stock_balances AS sb
+                    ON sb.warehouse_id = r.warehouse_id
+                   AND sb.product_id = r.product_id
+                WHERE r.order_id = %s
+                  AND r.state = 'active'
+                ORDER BY p.sku
+                """,
+                (order["id"],),
+            )
+            balances = cursor.fetchall()
+
+            result = {
+                "number": order["number"],
+                "status": "awaiting_payment",
+                "already_reserved": already_reserved,
+                "balances": balances,
+            }
+
+    return result
